@@ -41,5 +41,16 @@ added settings.port in main.py
 ```bash
 python -m app.main
 ```
-Should show same result as stage 3.
+Should show same result as M2 Stage 3.
 
+## M2 stage 4
+Made Dockerfile, dockercompose.yml, and dockerignore.
+
+### Run with Docker (recommended)
+Run Docker Desktop
+```bash
+docker compose up --build
+```
+Visit `http://localhost:8000/health`. 
+
+Same results as M2 Stage 3
