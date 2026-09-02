@@ -67,5 +67,12 @@ python check_db.py
 ```
 Should return Total rows: 1
 
+## M2 Stage 6
+> **Note:** CORS is currently open (`*`) for local development. This will be locked to the extension's specific origin before publishing.
 
-
+Added CORS middleware in main.py
+Verify nothing broke after, run:
+``` bash
+python -m app.main
+```
+Visit http://localhost:8000/health - should still return {"status":"ok"}.
