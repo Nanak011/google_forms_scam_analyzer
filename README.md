@@ -35,3 +35,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 Visit `http://localhost:8000/health` - should return `{"status":"ok"}`.
 Interactive API docs at `http://localhost:8000/docs`.
+
+## M2 Stage 3b
+added settings.port in main.py
+```bash
+python -m app.main
+```
+Should show same result as stage 3.
+
