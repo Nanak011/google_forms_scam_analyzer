@@ -1,16 +1,16 @@
-# My 10x Solution — One-Pager (M1)
+# My 10x Solution - One-Pager (M1)
 
 ## The problem
 
-People regularly receive Google Form links via email, text, or social media — scholarship applications, "you've won a prize," job application requests, "verify your account" forms. Checking whether one is a scam means reading it carefully, manually searching the linked domain, and googling any names or organizations mentioned — a careful person spends several minutes doing this, and most people skip it entirely because it's tedious. That skipped step is exactly where scams succeed.
+People regularly receive Google Form links via email, text, or social media — scholarship applications, "you've won a prize," job application requests, "verify your account" forms. Checking whether one is a scam means reading it carefully, manually searching the linked domain, and googling any names or organizations mentioned - a careful person spends several minutes doing this, and most people skip it entirely because it's tedious. That skipped step is exactly where scams succeed.
 
 ## Who has this problem
 
-Anyone who receives an unsolicited Google Form link and has no quick way to sanity-check it before entering personal information — students, job seekers, people responding to "giveaway" or "survey reward" links, employees receiving fake internal-looking forms.
+Anyone who receives an unsolicited Google Form link and has no quick way to sanity-check it before entering personal information - students, job seekers, people responding to "giveaway" or "survey reward" links, employees receiving fake internal-looking forms.
 
 ## The 10x claim
 
-Manually vetting a suspicious form — reading it, checking the link, searching mentioned names — takes several minutes of effort most people skip. This tool produces a scam/legit/uncertain verdict, with named reasons, in the time it takes a browser popup to load.
+Manually vetting a suspicious form - reading it, checking the link, searching mentioned names - takes several minutes of effort most people skip. This tool produces a scam/legit/uncertain verdict, with named reasons, in the time it takes a browser popup to load.
 
 ## The 5 concepts (no swaps needed)
 
@@ -47,4 +47,4 @@ Chrome Extension (content script reads the visible Google Form)
 
 ## Non-negotiable ethical boundary
 
-This tool analyzes the *content of a form a user is about to fill out* — it never scrapes other users' submitted answers, never touches real social media accounts, and only queries official, ToS-compliant APIs (Google Safe Browsing, VirusTotal, urlscan.io, Google Custom Search JSON API) — no direct scraping of search engines or social platforms.
+This tool analyzes the *content of a form a user is about to fill out* - it never scrapes other users' submitted answers, never touches real social media accounts, and only queries official, ToS-compliant APIs (Google Safe Browsing, VirusTotal, urlscan.io, Google Custom Search JSON API) - no direct scraping of search engines or social platforms.
