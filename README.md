@@ -11,7 +11,7 @@ FlyRank Backend Internship - "Your 10x Solution" capstone.
 
 | Concept | Where |
 |---|---|
-| API endpoints | *(in progress)* |
+| API endpoints | `app/main.py` - `/health` live, `/analyze` in progress |
 | Database | *(in progress)* |
 | LLM integration | *(planned)* |
 | Caching | *(planned)* |
@@ -27,3 +27,11 @@ pip install -r requirements.txt
 ```
 ## M2 Stage 2
 Copy `.env.example` to `.env` and fill in your own API keys if you want to test LLM/OSINT calls locally (optional - real usage is BYOK via the extension, not this file).
+
+## M2 Stage 3
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Visit `http://localhost:8000/health` - should return `{"status":"ok"}`.
+Interactive API docs at `http://localhost:8000/docs`.
