@@ -11,7 +11,7 @@ FlyRank Backend Internship - "Your 10x Solution" capstone.
 
 | Concept | Where |
 |---|---|
-| API endpoints | `app/main.py` - `/health` live, `/analyze` in progress |
+| API endpoints | `app/main.py` - `POST /analyze`, `GET /health`, request/response validated via Pydantic |
 | Database | `app/db.py` - SQLAlchemy `scans` table, SQLite locally |
 | LLM integration | *(planned)* |
 | Caching | *(planned)* |
@@ -76,3 +76,9 @@ Verify nothing broke after, run:
 python -m app.main
 ```
 Visit http://localhost:8000/health - should still return {"status":"ok"}.
+
+## M2 Stage 7
+/analyze endpoint with dummy verdict:
+Complete body request with required fields responds with 200 response body.
+Incomplete request sends 422 response.
+
