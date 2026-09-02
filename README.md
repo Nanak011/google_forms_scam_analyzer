@@ -12,7 +12,7 @@ FlyRank Backend Internship - "Your 10x Solution" capstone.
 | Concept | Where |
 |---|---|
 | API endpoints | `app/main.py` - `/health` live, `/analyze` in progress |
-| Database | *(in progress)* |
+| Database | `app/db.py` - SQLAlchemy `scans` table, SQLite locally |
 | LLM integration | *(planned)* |
 | Caching | *(planned)* |
 | Background jobs | *(planned)* |
@@ -54,3 +54,18 @@ docker compose up --build
 Visit `http://localhost:8000/health`. 
 
 Same results as M2 Stage 3
+
+## M2 Stage 5
+SQLAlchemy scans table, added test_db and check-db to add a dummy row to the table and check the total rows. 
+```bash
+python test_db.py
+```
+Should return Inserted row: 1 uncertain 0.5 2026-09-02 10:34:50.629664
+
+``` bash
+python check_db.py
+```
+Should return Total rows: 1
+
+
+
