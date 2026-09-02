@@ -14,7 +14,7 @@ FlyRank Backend Internship - "Your 10x Solution" capstone.
 | API endpoints | `app/main.py` - `POST /analyze`, `GET /health`, request/response validated via Pydantic |
 | Database | `app/db.py` - SQLAlchemy `scans` table, SQLite locally |
 | LLM integration | *(planned)* |
-| Caching | *(planned)* |
+| Caching | `app/main.py` - content-hash lookup in `scans` table before recomputing |
 | Background jobs | *(planned)* |
 
 ## M2 Stage 1
@@ -81,4 +81,29 @@ Visit http://localhost:8000/health - should still return {"status":"ok"}.
 /analyze endpoint with dummy verdict:
 Complete body request with required fields responds with 200 response body.
 Incomplete request sends 422 response.
+
+## M2 Stage 8
+Wired the DB and /analyze together. 
+Request comes in → check cache → if new, "compute" a verdict → store it → return it. 
+Dummy logic for now (no real LLM/OSINT), but the shape of caching becomes real.
+
+
+`compute_content_hash` deliberately hashes only title, description, and questions, and excludes form_url on purpose so that the same form scanned from two different links still hits the cache, since it's the same scam content either way. 
+
+Delete the previous dev.db,
+Run ``` python -m app.main ```
+
+Test the cache-miss cache-hit cycle. 
+Go to http://localhost:8000/docs and POST the same body below twice:
+{
+  "form_url": "https://forms.google.com/example",
+  "title": "You've won a $500 gift card!",
+  "description": "Click here to claim your prize before it expires",
+  "questions": ["Full name", "Bank account number", "SSN"]
+}
+
+First call → expect "cached": false
+Second call, identical body → expect "cached": true
+Third call, change the form_url, identical body → expect "cached": true
+Fourth call, change the title with other content same → expect "cached": false
 
