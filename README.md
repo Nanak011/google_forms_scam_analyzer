@@ -13,7 +13,7 @@ FlyRank Backend Internship - "Your 10x Solution" capstone.
 |---|---|
 | API endpoints | `app/main.py` - `POST /analyze`, `GET /health`, request/response validated via Pydantic |
 | Database | `app/db.py` - SQLAlchemy `scans` table, SQLite locally |
-| LLM integration | *(planned)* |
+| LLM integration | `app/llm.py` - Groq (`openai/gpt-oss-120b`) primary, Gemini 3.6 Flash fallback (15s timeout) on failure, structured JSON via schema + regex safety net, cost logged per provider to `logs/llm_cost_log.jsonl` |
 | Caching | `app/main.py` - content-hash lookup in `scans` table before recomputing |
 | Background jobs | *(planned)* |
 
@@ -106,4 +106,3 @@ First call → expect "cached": false
 Second call, identical body → expect "cached": true
 Third call, change the form_url, identical body → expect "cached": true
 Fourth call, change the title with other content same → expect "cached": false
-
