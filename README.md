@@ -233,3 +233,15 @@ Added `app/verdict.py` - `combine_signals` takes the LLM's wording-based analysi
 python test_verdict.py
 ```
 Three scenarios tested: OSINT correcting an uncertain LLM read into a confident scam verdict (link independently flagged by Safe Browsing), multiple corroborating signals stacking to high confidence, and a clean case staying untouched.
+
+## M3 Stage 10 - Full pipeline: async background jobs + combined verdict
+
+Rewired `/analyze` into the real architecture from the original one-pager:
+LLM classification runs synchronously (the part the user waits on, a few seconds), returns a verdict immediately with `status: "pending_osint"`.
+OSINT checks (`run_osint_checks`) run as a genuine FastAPI `BackgroundTasks` job *after* the response is already sent — not just concurrent within the request, actually decoupled from it. Once OSINT finishes, the scan's DB row is updated with the combined verdict and `status: "complete"`.
+
+Added `GET /analyze/{content_hash}` for the client to poll for the updated result. Cache logic now returns whatever the *current* state of a scan is (pending or complete) rather than forcing a redo.
+
+DB schema updated: `Scan` now stores `form_url`, `status`, raw `llm_signals` (needed to re-run `combine_signals` once OSINT lands), and `osint_signals`, alongside the existing verdict/confidence/reasons.
+
+Tested: POST returns fast with `pending_osint`; polling GET a few seconds later returns `complete` with OSINT-adjusted confidence/reasons; a repeat POST with identical content returns instantly from cache regardless of processing state.

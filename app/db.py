@@ -6,12 +6,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.config import settings
 
-BASE_DIR = Path(__file__).resolve().parent.parent  # project root, one level up from app/
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _resolve_database_url(url: str) -> str:
-    """Turn a relative sqlite URL into an absolute path based on the project
-    root, so it works the same no matter where the script is run from."""
     prefix = "sqlite:///./"
     if url.startswith(prefix):
         rel_path = url[len(prefix):]
@@ -44,11 +42,20 @@ class Scan(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     content_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    form_url: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending_osint")  # pending_osint | complete
     verdict: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[float] = mapped_column(Float)
-    signals: Mapped[str] = mapped_column(Text)
+    reasons: Mapped[str] = mapped_column(Text)                # JSON list of strings
+    llm_signals: Mapped[str] = mapped_column(Text)             # JSON: raw LLM analysis, needed to redo the combine once OSINT finishes
+    osint_signals: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
