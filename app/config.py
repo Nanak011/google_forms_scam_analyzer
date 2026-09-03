@@ -11,8 +11,9 @@ class Settings(BaseSettings):
     google_safe_browsing_api_key: str | None = None
     virustotal_api_key: str | None = None
     urlscan_api_key: str | None = None
-    google_cse_api_key: str | None = None
-    google_cse_cx: str | None = None
+    # google_cse_api_key: str | None = None
+    # google_cse_cx: str | None = None
+    tavily_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

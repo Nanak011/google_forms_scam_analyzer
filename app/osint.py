@@ -142,3 +142,33 @@ def check_urlscan(url: str) -> dict:
         return {"has_history": None, "scan_count": 0, "error": "timeout"}
     except httpx.HTTPError as e:
         return {"has_history": None, "scan_count": 0, "error": f"request_failed: {e}"}
+
+
+
+from tavily import TavilyClient
+
+tavily_client = TavilyClient(api_key=settings.tavily_api_key) if settings.tavily_api_key else None
+
+
+def check_named_entity(entity_name: str) -> dict:
+    """Runs a targeted search for a named person/org extracted by the LLM,
+    looking for existing scam reports. Returns top result snippets so the
+    caller can judge relevance — this does NOT itself decide scam/not-scam,
+    since a hit could be a false positive (e.g. a real org impersonated by
+    someone else)."""
+    if not tavily_client:
+        return {"query": None, "result_count": 0, "top_snippets": [], "error": "no_api_key"}
+
+    query = f'"{entity_name}" scam OR fraud OR complaint'
+
+    try:
+        response = tavily_client.search(
+            query=query,
+            max_results=3,
+            search_depth="basic",
+        )
+        results = response.get("results", [])
+        snippets = [r.get("content", "")[:300] for r in results]
+        return {"query": query, "result_count": len(results), "top_snippets": snippets}
+    except Exception as e:
+        return {"query": query, "result_count": 0, "top_snippets": [], "error": f"request_failed: {e}"}

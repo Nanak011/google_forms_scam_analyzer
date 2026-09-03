@@ -201,3 +201,15 @@ Fails soft on timeout/network errors - returns a neutral result rather than cras
 ```bash
 python test_osint.py
 ```
+
+
+## M3 Stage 7 - Background jobs: OSINT integration (part 4 - named-entity search)
+
+Originally planned as Google Custom Search JSON API. Discovered Google has restricted this API to existing customers only - new Programmable Search Engine projects receive a 403 regardless of correct configuration (confirmed via community reports, not a local misconfiguration). Swapped to Tavily - a search API purpose-built for this exact pattern (query in, ranked web snippets out), genuine free tier, no card required. Same function signature and role in the pipeline, different provider.
+
+`check_named_entity` takes a name/org extracted by the LLM and searches for `"{name}" scam OR fraud OR complaint`, returning top result snippets as raw evidence - it does not itself decide scam/not-scam, since a search hit could be a false positive (e.g. a real org impersonated by someone else). That judgment happens when signals are combined.
+
+```bash
+python test_osint.py
+```
+Should return real snippets for a known scam-adjacent phrase, and unrelated (non-scam) content for a genuine institution name - confirming it doesn't false-positive on any searchable name.

@@ -1,6 +1,8 @@
 from app.osint import check_safe_browsing
 from app.osint import check_virustotal
 from app.osint import check_urlscan
+# from app.osint import check_named_entity
+from app.osint import check_named_entity
 
 
 print("=== Known-bad test URL (should flag) ===")
@@ -27,4 +29,13 @@ print(result)
 
 print("\n=== urlscan.io: made-up domain (should be new/unseen) ===")
 result = check_urlscan("https://xk7q9z-totally-fake-domain-test.com")
+print(result)
+
+
+print("\n=== Tavily: known scam-adjacent phrase ===")
+result = check_named_entity("IRS tax refund scam")
+print(result)
+
+print("\n=== Tavily: real institution, should not read as scam ===")
+result = check_named_entity("Taylor's University IIMS College")
 print(result)
