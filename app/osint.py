@@ -2,6 +2,9 @@ import httpx
 
 from app.config import settings
 
+from urllib.parse import urlparse
+
+
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 
@@ -68,3 +71,74 @@ def check_virustotal(url: str) -> dict:
     total = sum(stats.values())
 
     return {"flagged": malicious > 0, "malicious_count": malicious, "total_engines": total}
+
+
+
+# def check_urlscan(url: str) -> dict:
+#     """Returns first-seen / page-identity signals for a domain, using
+#     urlscan.io's search API (existing scan history, not a live re-scan —
+#     instant, no wait)."""
+#     if not settings.urlscan_api_key:
+#         return {"new_domain": None, "scan_count": 0, "error": "no_api_key"}
+
+#     domain = urlparse(url).netloc
+#     if not domain:
+#         return {"new_domain": None, "scan_count": 0, "error": "invalid_url"}
+
+#     response = httpx.get(
+#         "https://urlscan.io/api/v1/search/",
+#         headers={"API-Key": settings.urlscan_api_key},
+#         params={"q": f"domain:{domain}", "size": 10},
+#         timeout=10,
+#     )
+#     response.raise_for_status()
+#     data = response.json()
+#     results = data.get("results", [])
+
+#     if not results:
+#         return {"new_domain": True, "scan_count": 0, "first_seen": None}
+
+#     dates = [r["task"]["time"] for r in results if "task" in r and "time" in r["task"]]
+#     earliest = min(dates) if dates else None
+#     page_title = results[0].get("page", {}).get("title")
+
+#     return {
+#         "new_domain": False,
+#         "scan_count": len(results),
+#         "first_seen": earliest,
+#         "page_title": page_title,
+#     }
+
+def check_urlscan(url: str) -> dict:
+    """Returns whether a domain has any scan history on urlscan.io.
+    Note: their search API only sorts newest-first with no ascending
+    option, so a precise 'first ever seen' date isn't retrievable without
+    paging through potentially thousands of results — not practical per
+    request. Presence/absence of history and an approximate result count
+    are the reliable signals available here.
+
+    Fails soft: any network/timeout error returns a neutral result rather
+    than crashing the caller, since this check runs off the main request
+    path and one slow provider shouldn't block the others."""
+    if not settings.urlscan_api_key:
+        return {"has_history": None, "scan_count": 0, "error": "no_api_key"}
+
+    domain = urlparse(url).netloc
+    if not domain:
+        return {"has_history": None, "scan_count": 0, "error": "invalid_url"}
+
+    try:
+        response = httpx.get(
+            "https://urlscan.io/api/v1/search/",
+            headers={"API-Key": settings.urlscan_api_key},
+            params={"q": f"domain:{domain}", "size": 1},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        total = data.get("total", 0)
+        return {"has_history": total > 0, "scan_count": total}
+    except httpx.TimeoutException:
+        return {"has_history": None, "scan_count": 0, "error": "timeout"}
+    except httpx.HTTPError as e:
+        return {"has_history": None, "scan_count": 0, "error": f"request_failed: {e}"}

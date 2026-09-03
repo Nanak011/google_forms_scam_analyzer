@@ -186,3 +186,18 @@ Tested against a known-clean URL and the industry-standard EICAR test URL (a har
 python test_osint.py
 ```
 Should return `{"flagged": False, ...}` for the clean URL and `{"flagged": True, "malicious_count": >0, ...}` for the EICAR URL.
+
+
+## M3 Stage 6 - Background jobs: OSINT integration (part 3 - urlscan.io)
+
+Get a free API key at https://urlscan.io/user/signup, add to .env
+
+Added `check_urlscan` to `app/osint.py` - checks whether a domain has existing scan history via urlscan.io's search API.
+
+Note: originally attempted to compute a domain's first-seen date, but discovered urlscan's search API only sorts results newest-first with no ascending option - computing "first seen" would require paging back through potentially thousands of results, impractical per request. Scope adjusted to "has scan history" + approximate count instead, which the API supports reliably.
+
+Fails soft on timeout/network errors - returns a neutral result rather than crashing, since this runs off the main request path and one slow provider shouldn't block the others. Verified against both a fast query (rare domain, succeeds) and a slow one (google.com, times out under load, handled gracefully - proves the fail-soft path, not just the happy path).
+
+```bash
+python test_osint.py
+```
