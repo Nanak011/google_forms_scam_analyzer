@@ -155,6 +155,8 @@ via `/docs` twice - first call returns a real verdict with actual reasons from t
 
 Built `app/osint.py`: reputation checks run separately from the LLM classification, combining into one signal set (background jobs concept - external API latency varies, so these run off the main synchronous path).
 
+Get a free Safe Browsing API key from https://console.cloud.google.com/, enable "Safe Browsing API" from the API Library, create an API key and add it to the environment variable. 
+
 **Scope:** four OSINT checks total, matching the original one-pager:
 - Google Safe Browsing (URL/domain threat lists)
 - VirusTotal (aggregated reputation across 70+ security vendors)
@@ -172,3 +174,15 @@ Should return `{"flagged": True, "threat_types": ["MALWARE"]}` for the
 known-bad test URL, and `{"flagged": False, "threat_types": []}` for a
 known-clean URL.
 
+## M3 Stage 5 - Background jobs: OSINT integration (part 2 - VirusTotal)
+
+Get a free API key at https://www.virustotal.com/gui/join-us and add to .env
+
+Added `check_virustotal` to `app/osint.py` - queries VirusTotal's aggregated reputation across 90+ security vendors. If a URL hasn't been analyzed before, submits it for analysis and returns a neutral result rather than a false negative (`"not_yet_analyzed"`).
+
+Tested against a known-clean URL and the industry-standard EICAR test URL (a harmless file specifically designed to trigger antivirus detections, used instead of a real malicious sample):
+
+```bash
+python test_osint.py
+```
+Should return `{"flagged": False, ...}` for the clean URL and `{"flagged": True, "malicious_count": >0, ...}` for the EICAR URL.
