@@ -149,3 +149,26 @@ Delete `dev.db` for a clean test, run the server, POST a scammy example
 }
 
 via `/docs` twice - first call returns a real verdict with actual reasons from the LLM and `"cached": false`; second call returns the same result with `"cached": true`.
+
+
+## M3 Stage 4 - Background jobs: OSINT integration (part 1 - Google Safe Browsing)
+
+Built `app/osint.py`: reputation checks run separately from the LLM classification, combining into one signal set (background jobs concept - external API latency varies, so these run off the main synchronous path).
+
+**Scope:** four OSINT checks total, matching the original one-pager:
+- Google Safe Browsing (URL/domain threat lists)
+- VirusTotal (aggregated reputation across 70+ security vendors)
+- urlscan.io (domain first-seen date, page identity)
+- Google Custom Search (targeted queries on the LLM-extracted named entities, e.g. `"Acme Bank Support" scam`). 
+
+This stage covers the first of the four.
+
+Tested against Google's official Safe Browsing test URLs (designed to deliberately trigger known threat-type matches, so no real malicious URL is needed for testing):
+
+```bash
+python test_osint.py
+```
+Should return `{"flagged": True, "threat_types": ["MALWARE"]}` for the
+known-bad test URL, and `{"flagged": False, "threat_types": []}` for a
+known-clean URL.
+

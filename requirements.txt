@@ -5,3 +5,4 @@ pydantic-settings
 python-dotenv
 google-genai
 groq
+httpx
