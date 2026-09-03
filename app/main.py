@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import Scan, get_db, init_db
+from app.llm import classify_form
 
 app = FastAPI(title="Google Forms Scam Analyzer")
 
@@ -36,12 +37,11 @@ class AnalyzeResponse(BaseModel):
     verdict: str
     confidence: float
     reasons: list[str]
+    named_entities: list[str]
     cached: bool
 
 
 def compute_content_hash(payload: AnalyzeRequest) -> str:
-    """Hash the form's actual content, not the URL - so the same form
-    scanned from two different links still hits the cache."""
     raw = json.dumps(
         {
             "title": payload.title,
@@ -51,6 +51,14 @@ def compute_content_hash(payload: AnalyzeRequest) -> str:
         sort_keys=True,
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def verdict_from_confidence(confidence: float) -> str:
+    if confidence >= 0.7:
+        return "scam"
+    if confidence <= 0.3:
+        return "legit"
+    return "uncertain"
 
 
 @app.get("/health")
@@ -64,28 +72,36 @@ def analyze(payload: AnalyzeRequest, db: Session = Depends(get_db)):
 
     existing = db.query(Scan).filter_by(content_hash=content_hash).first()
     if existing:
+        signals = json.loads(existing.signals)
         return AnalyzeResponse(
             verdict=existing.verdict,
             confidence=existing.confidence,
-            reasons=json.loads(existing.signals),
+            reasons=signals.get("reasons", []),
+            named_entities=signals.get("named_entities", []),
             cached=True,
         )
 
-    verdict = "uncertain"
-    confidence = 0.5
-    reasons = ["dummy response - real logic not wired in yet"]
+    analysis = classify_form(payload.title, payload.description, payload.questions)
+
+    verdict = verdict_from_confidence(analysis.llm_confidence)
+    reasons = analysis.tactics_detected + [analysis.summary]
+    signals = {"reasons": reasons, "named_entities": analysis.named_entities}
 
     scan = Scan(
         content_hash=content_hash,
         verdict=verdict,
-        confidence=confidence,
-        signals=json.dumps(reasons),
+        confidence=analysis.llm_confidence,
+        signals=json.dumps(signals),
     )
     db.add(scan)
     db.commit()
 
     return AnalyzeResponse(
-        verdict=verdict, confidence=confidence, reasons=reasons, cached=False
+        verdict=verdict,
+        confidence=analysis.llm_confidence,
+        reasons=reasons,
+        named_entities=analysis.named_entities,
+        cached=False,
     )
 
 

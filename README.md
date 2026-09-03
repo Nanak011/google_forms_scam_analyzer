@@ -106,3 +106,46 @@ First call → expect "cached": false
 Second call, identical body → expect "cached": true
 Third call, change the form_url, identical body → expect "cached": true
 Fourth call, change the title with other content same → expect "cached": false
+
+## M3 Stage 1 - confirm Gemini API key + gemini-3.6-flash working
+LLM provider smoke test
+
+Confirmed API access works before wiring anything into the real pipeline.
+Added `GEMINI_API_KEY` and `GROQ_API_KEY` to `.env` (get free keys at
+https://aistudio.google.com/apikey and https://console.groq.com/keys )
+
+```bash
+python test_llm.py
+```
+Should print a short one-word response, confirming the Gemini key and SDK work.
+
+## M3 Stage 2 - LLM integration- tactic classification + entity extraction
+
+Built `app/llm.py`: structured JSON output via Pydantic schema, narrow single-purpose prompt (classify scam tactics, extract named entities, one-sentence summary, confidence score), cost logged per call to
+`logs/llm_cost_log.jsonl`.
+
+**Provider order:** Groq (`openai/gpt-oss-120b`) primary, Gemini 3.6 Flash fallback (15s timeout) if Groq fails. This is the reverse of the original plan (Gemini primary) - during development, Gemini's free tier returned frequent `503 UNAVAILABLE` errors under load, sometimes taking minutes to fail, so Groq was moved to primary for reliability. Gemini remains as a genuine fallback, not dead code.
+
+```bash
+python test_llm_classify.py
+```
+Should print two JSON results: a scammy example with several
+`tactics_detected` and high `llm_confidence`, and a legit example with an empty `tactics_detected` list and low `llm_confidence`. Check the cost log:
+```bash
+type logs\llm_cost_log.jsonl
+```
+
+## M3 Stage 3 - wire classify_form into /analyze, replacing dummy verdict
+
+Replaced the dummy verdict in `POST /analyze` with a real call to `classify_form`. Added `verdict_from_confidence`: LLM confidence ≥ 0.7 → `"scam"`, ≤ 0.3 → `"legit"`, otherwise `"uncertain"` (thresholds are a starting point, not tuned against real data yet). Cached responses now also return `named_entities`, not just the verdict.
+
+Delete `dev.db` for a clean test, run the server, POST a scammy example 
+
+{
+  "form_url": "string",
+  "title": "You've won a $500 gift card!",
+  "description": "Click here to claim your prize before it expires tonight",
+  "questions": ["Full name", "Bank account number", "SSN"]
+}
+
+via `/docs` twice - first call returns a real verdict with actual reasons from the LLM and `"cached": false`; second call returns the same result with `"cached": true`.
