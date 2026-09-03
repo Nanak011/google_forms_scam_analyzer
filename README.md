@@ -213,3 +213,13 @@ Originally planned as Google Custom Search JSON API. Discovered Google has restr
 python test_osint.py
 ```
 Should return real snippets for a known scam-adjacent phrase, and unrelated (non-scam) content for a genuine institution name - confirming it doesn't false-positive on any searchable name.
+
+
+## M3 Stage 8 - Background jobs: combine OSINT checks concurrently
+
+Added `run_osint_checks` to `app/osint.py` - runs Safe Browsing, VirusTotal, urlscan.io, and Tavily entity checks concurrently via `ThreadPoolExecutor` rather than sequentially. Each check already fails soft internally, so one slow/broken provider degrades that signal without blocking the others. Entity checks capped at 3 named entities per scan to protect free-tier quota.
+
+```bash
+python test_osint.py
+```
+Combined check against a real URL completed in ~2s - confirms checks run in parallel (urlscan alone can take several seconds against high-traffic domains; serial execution would show the sum of all four).

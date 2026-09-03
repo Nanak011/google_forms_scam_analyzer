@@ -4,6 +4,8 @@ from app.config import settings
 
 from urllib.parse import urlparse
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
@@ -113,7 +115,7 @@ def check_urlscan(url: str) -> dict:
     """Returns whether a domain has any scan history on urlscan.io.
     Note: their search API only sorts newest-first with no ascending
     option, so a precise 'first ever seen' date isn't retrievable without
-    paging through potentially thousands of results — not practical per
+    paging through potentially thousands of results - not practical per
     request. Presence/absence of history and an approximate result count
     are the reliable signals available here.
 
@@ -153,7 +155,7 @@ tavily_client = TavilyClient(api_key=settings.tavily_api_key) if settings.tavily
 def check_named_entity(entity_name: str) -> dict:
     """Runs a targeted search for a named person/org extracted by the LLM,
     looking for existing scam reports. Returns top result snippets so the
-    caller can judge relevance — this does NOT itself decide scam/not-scam,
+    caller can judge relevance - this does NOT itself decide scam/not-scam,
     since a hit could be a false positive (e.g. a real org impersonated by
     someone else)."""
     if not tavily_client:
@@ -172,3 +174,42 @@ def check_named_entity(entity_name: str) -> dict:
         return {"query": query, "result_count": len(results), "top_snippets": snippets}
     except Exception as e:
         return {"query": query, "result_count": 0, "top_snippets": [], "error": f"request_failed: {e}"}
+
+
+
+def run_osint_checks(url: str, named_entities: list[str]) -> dict:
+    """Runs all OSINT checks concurrently (I/O-bound network calls, so
+    threads are sufficient - no need for full async here). Each check
+    already fails soft internally, so one slow/broken provider degrades
+    that signal rather than blocking the others."""
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(check_safe_browsing, url): "safe_browsing",
+            pool.submit(check_virustotal, url): "virustotal",
+            pool.submit(check_urlscan, url): "urlscan",
+        }
+       
+        entity_futures = {
+            pool.submit(check_named_entity, name): name
+            for name in named_entities[:3] 
+        }
+
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as e:
+                results[key] = {"error": f"unexpected_failure: {e}"}
+
+        entity_results = {}
+        for future in as_completed(entity_futures):
+            name = entity_futures[future]
+            try:
+                entity_results[name] = future.result()
+            except Exception as e:
+                entity_results[name] = {"error": f"unexpected_failure: {e}"}
+        results["named_entity_checks"] = entity_results
+
+    return results

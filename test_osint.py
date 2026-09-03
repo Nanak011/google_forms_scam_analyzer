@@ -3,6 +3,9 @@ from app.osint import check_virustotal
 from app.osint import check_urlscan
 # from app.osint import check_named_entity
 from app.osint import check_named_entity
+from app.osint import run_osint_checks
+import time
+
 
 
 print("=== Known-bad test URL (should flag) ===")
@@ -38,4 +41,15 @@ print(result)
 
 print("\n=== Tavily: real institution, should not read as scam ===")
 result = check_named_entity("Taylor's University IIMS College")
+print(result)
+
+
+print("\n=== Combined OSINT check (concurrent) ===")
+start = time.time()
+result = run_osint_checks(
+    url="https://www.google.com",
+    named_entities=["IRS tax refund scam"],
+)
+elapsed = time.time() - start
+print(f"Completed in {elapsed:.2f}s")
 print(result)
