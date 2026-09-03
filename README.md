@@ -223,3 +223,13 @@ Added `run_osint_checks` to `app/osint.py` - runs Safe Browsing, VirusTotal, url
 python test_osint.py
 ```
 Combined check against a real URL completed in ~2s - confirms checks run in parallel (urlscan alone can take several seconds against high-traffic domains; serial execution would show the sum of all four).
+
+
+## M3 Stage 9 - Combine LLM + OSINT signals into final verdict
+
+Added `app/verdict.py` - `combine_signals` takes the LLM's wording-based analysis and the OSINT reputation results, and produces one final verdict/confidence/reasons output. LLM confidence is the baseline (it reads the actual scam tactics in the text); OSINT signals push confidence up when independent evidence agrees, with every adjustment logged as a visible, human-readable reason - nothing is silently overridden.
+
+```bash
+python test_verdict.py
+```
+Three scenarios tested: OSINT correcting an uncertain LLM read into a confident scam verdict (link independently flagged by Safe Browsing), multiple corroborating signals stacking to high confidence, and a clean case staying untouched.
