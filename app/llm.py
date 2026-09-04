@@ -61,6 +61,7 @@ def _try_groq_structured(system_prompt: str, user_prompt: str, schema_cls: type[
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
+            temperature=0,
         )
         raw = completion.choices[0].message.content
         cleaned = _extract_json_block(raw)
@@ -89,6 +90,7 @@ def _try_gemini_structured(system_prompt: str, user_prompt: str, schema_cls: typ
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 response_mime_type="application/json",
+                temperature=0,
                 response_schema=schema_cls,
                 http_options=types.HttpOptions(timeout=GEMINI_TIMEOUT_SECONDS * 1000),
             ),

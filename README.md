@@ -312,3 +312,15 @@ header-supplied key (from the extension) → `.env` fallback (local dev convenie
 - Missing/invalid LLM key returns a proper `400` with a real explanation ("No LLM API key found. Add your Gemini or Groq API key in the extension's settings.") instead of an opaque `500`.
 
 Tested: blanked `.env`'s LLM keys entirely, confirmed scanning fails with the correct message; added keys via the options page, confirmed scanning works purely from BYOK with no server-side keys involved at all.
+
+
+## M3 Stage 15 - Reduce LLM Score Variance
+
+- LLM calls now use `temperature=0` to reduce (not eliminate - LLM APIs don't guarantee full determinism even at temp 0) run-to-run confidence variance on identical input.
+
+Still not perfect and subject to future enhancement.
+
+
+
+
+
