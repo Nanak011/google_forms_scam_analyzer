@@ -23,12 +23,21 @@ def extract_urls(*texts: str) -> list[str]:
     return list(urls)
 
 
-def _resolve(byok_value: str | None, dev_fallback: str | None) -> str | None:
-    return byok_value or dev_fallback
+# def _resolve(byok_value: str | None, dev_fallback: str | None) -> str | None:
+#     return byok_value or dev_fallback
 
 
-def check_safe_browsing(url: str, api_key: str | None = None) -> dict:
-    key = _resolve(api_key, settings.google_safe_browsing_api_key)
+def _resolve(byok_value: str | None, dev_fallback: str | None, allow_server_fallback: bool = True) -> str | None:
+    if byok_value:
+        return byok_value
+    if allow_server_fallback:
+        return dev_fallback
+    return None
+
+
+
+def check_safe_browsing(url: str, api_key: str | None = None, allow_server_fallback: bool = True) -> dict:
+    key = _resolve(api_key, settings.google_safe_browsing_api_key, allow_server_fallback)
     if not key:
         return {"flagged": False, "threat_types": [], "error": "no_api_key"}
 
@@ -51,8 +60,9 @@ def check_safe_browsing(url: str, api_key: str | None = None) -> dict:
         return {"flagged": False, "threat_types": [], "error": f"request_failed: {e}"}
 
 
-def check_virustotal(url: str, api_key: str | None = None) -> dict:
-    key = _resolve(api_key, settings.virustotal_api_key)
+
+def check_virustotal(url: str, api_key: str | None = None, allow_server_fallback: bool = True) -> dict:
+    key = _resolve(api_key, settings.virustotal_api_key, allow_server_fallback)
     if not key:
         return {"flagged": False, "malicious_count": 0, "total_engines": 0, "error": "no_api_key"}
 
@@ -80,8 +90,9 @@ def check_virustotal(url: str, api_key: str | None = None) -> dict:
         return {"flagged": False, "malicious_count": 0, "total_engines": 0, "error": f"request_failed: {e}"}
 
 
-def check_urlscan(url: str, api_key: str | None = None) -> dict:
-    key = _resolve(api_key, settings.urlscan_api_key)
+
+def check_urlscan(url: str, api_key: str | None = None, allow_server_fallback: bool = True) -> dict:
+    key = _resolve(api_key, settings.urlscan_api_key, allow_server_fallback)
     if not key:
         return {"has_history": None, "scan_count": 0, "error": "no_api_key"}
 
@@ -103,8 +114,9 @@ def check_urlscan(url: str, api_key: str | None = None) -> dict:
         return {"has_history": None, "scan_count": 0, "error": f"request_failed: {e}"}
 
 
-def check_named_entity(entity_name: str, api_key: str | None = None) -> dict:
-    key = _resolve(api_key, settings.tavily_api_key)
+
+def check_named_entity(entity_name: str, api_key: str | None = None, allow_server_fallback: bool = True) -> dict:
+    key = _resolve(api_key, settings.tavily_api_key, allow_server_fallback)
     if not key:
         return {"query": None, "result_count": 0, "top_results": [], "error": "no_api_key"}
 
@@ -119,7 +131,8 @@ def check_named_entity(entity_name: str, api_key: str | None = None) -> dict:
         return {"query": query, "result_count": 0, "top_results": [], "error": f"request_failed: {e}"}
 
 
-def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None, keys: BYOKKeys | None = None) -> dict:
+
+def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None, keys: BYOKKeys | None = None, allow_server_fallback: bool = True) -> dict:
     keys = keys or BYOKKeys()
     embedded_urls = (embedded_urls or [])[:3]
     checked_entities = named_entities[:3]
@@ -128,19 +141,19 @@ def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[st
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         form_url_futures = {
-            pool.submit(check_safe_browsing, url, keys.safe_browsing_api_key): "safe_browsing",
-            pool.submit(check_virustotal, url, keys.virustotal_api_key): "virustotal",
-            pool.submit(check_urlscan, url, keys.urlscan_api_key): "urlscan",
+            pool.submit(check_safe_browsing, url, keys.safe_browsing_api_key, allow_server_fallback): "safe_browsing",
+            pool.submit(check_virustotal, url, keys.virustotal_api_key, allow_server_fallback): "virustotal",
+            pool.submit(check_urlscan, url, keys.urlscan_api_key, allow_server_fallback): "urlscan",
         }
         entity_futures = {
-            pool.submit(check_named_entity, name, keys.tavily_api_key): name
+            pool.submit(check_named_entity, name, keys.tavily_api_key, allow_server_fallback): name
             for name in checked_entities
         }
         embedded_futures = {}
         for u in embedded_urls:
-            embedded_futures[pool.submit(check_safe_browsing, u, keys.safe_browsing_api_key)] = (u, "safe_browsing")
-            embedded_futures[pool.submit(check_virustotal, u, keys.virustotal_api_key)] = (u, "virustotal")
-            embedded_futures[pool.submit(check_urlscan, u, keys.urlscan_api_key)] = (u, "urlscan")
+            embedded_futures[pool.submit(check_safe_browsing, u, keys.safe_browsing_api_key, allow_server_fallback)] = (u, "safe_browsing")
+            embedded_futures[pool.submit(check_virustotal, u, keys.virustotal_api_key, allow_server_fallback)] = (u, "virustotal")
+            embedded_futures[pool.submit(check_urlscan, u, keys.urlscan_api_key, allow_server_fallback)] = (u, "urlscan")
 
         for future in as_completed(form_url_futures):
             check_name = form_url_futures[future]

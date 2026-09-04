@@ -22,6 +22,8 @@ Manually vetting a suspicious form - reading it, checking the link, searching me
 | 4 | **Caching** | If a form's content hash has been scanned before, return the cached verdict instantly — no re-running the LLM or OSINT checks for a form seen twice |
 | 5 | **Background jobs** | OSINT/reputation checks (Google Safe Browsing, VirusTotal, urlscan.io, and targeted Google Custom Search queries on any extracted names/orgs) run asynchronously off the main request path, since external API latency varies; the client polls or receives the combined verdict once the job completes |
 
+`llm_confidence` represents the LLM's estimated probability the form is a scam, based on wording alone (0.0–1.0), not the model's certainty about its own answer. OSINT signals then adjust this baseline upward when independent evidence agrees. Scores can vary somewhat between runs of the same form, partly from LLM sampling and partly from which provider (Groq or Gemini) answers a given request, since they're different underlying models with different calibration.
+
 ## Non-goal
 
 **No user accounts, no saved personal scan history.** This is a single-scan, stateless-from-the-user's-perspective tool — you scan a form, you get a verdict, that's the whole interaction. (Note: the database above stores scans internally for caching/deduplication purposes, not as user-facing accounts or history — there is no login, no "my past scans" page.)

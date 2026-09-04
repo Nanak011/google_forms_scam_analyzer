@@ -329,7 +329,11 @@ Anyone who supplies their own Gemini or Groq key in the extension's settings byp
 
 **Known limitation, documented:** the limiter currently only gates LLM calls. OSINT checks (Safe Browsing, VirusTotal, urlscan.io, Tavily) still fall back to server keys for every request regardless of LLM-key status, protected only by each provider's own free-tier caps (Safe Browsing ~10k/day, VirusTotal ~500/day, etc.), not by this application's own limiter. Addressed in the next stage.
 
+## M3 Stage 17 - Extend rate limit to OSINT server-key fallback
 
+Stage 16's limiter only gated LLM calls - a user with their own LLM key could still use the server's Safe Browsing/VirusTotal/urlscan/Tavily keys unlimited times. Fixed: `allow_server_fallback` now flows through the whole OSINT pipeline. It's `true` only during a user's free trial window (no own LLM key yet, under the daily cap) or when rate limiting is off entirely (local dev). The moment a user supplies their own LLM key, server-side OSINT keys stop being available to them - any OSINT check they haven't also brought their own key for is cleanly skipped (shown as "Skipped - no key set"), not silently run on the server's dime.
+
+Verified: with rate limiting on and no own LLM key, OSINT checks run normally off server keys (full experience during trial). After adding an own LLM key, OSINT checks correctly stop falling back to server keys.
 
 
 

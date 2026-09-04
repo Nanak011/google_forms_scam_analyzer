@@ -98,7 +98,7 @@ def _scan_to_response(scan: Scan, cached: bool) -> AnalyzeResponse:
         checks=osint_signals,
     )
 
-def run_osint_background_job(content_hash: str, keys: BYOKKeys):
+def run_osint_background_job(content_hash: str, keys: BYOKKeys, allow_server_fallback: bool = True):
     db = SessionLocal()
     try:
         scan = db.query(Scan).filter_by(content_hash=content_hash).first()
@@ -110,7 +110,13 @@ def run_osint_background_job(content_hash: str, keys: BYOKKeys):
         embedded_urls = json.loads(scan.embedded_urls or "[]")
 
         try:
-            osint_result = run_osint_checks(scan.form_url, analysis.named_entities, embedded_urls, keys=keys)
+            osint_result = run_osint_checks(
+                scan.form_url,
+                analysis.named_entities,
+                embedded_urls,
+                keys=keys,
+                allow_server_fallback=allow_server_fallback,
+            )
         except Exception as e:
             print(f"[background_job] OSINT checks failed entirely: {e}")
             osint_result = {}
@@ -183,6 +189,7 @@ def analyze(
 ):
     keys = _keys_from_headers(x_gemini_key, x_groq_key, x_safe_browsing_key, x_virustotal_key, x_urlscan_key, x_tavily_key)
     user_supplied_llm_key = bool(keys.gemini_api_key or keys.groq_api_key)
+    allow_server_fallback = (not settings.enable_rate_limit) or (not user_supplied_llm_key)
 
     if settings.enable_rate_limit and not user_supplied_llm_key:
         client_ip = request.client.host if request.client else "unknown"
@@ -232,7 +239,7 @@ def analyze(
     db.commit()
     db.refresh(scan)
 
-    background_tasks.add_task(run_osint_background_job, content_hash, keys)
+    background_tasks.add_task(run_osint_background_job, content_hash, keys, allow_server_fallback)
 
     return _scan_to_response(scan, cached=False)
 
