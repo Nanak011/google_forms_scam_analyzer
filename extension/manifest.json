@@ -5,6 +5,7 @@
   "description": "Checks whether a Google Form is likely a scam before you fill it in.",
   "permissions": ["activeTab", "storage"],
   "host_permissions": ["http://localhost:8000/*"],
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["https://docs.google.com/forms/*"],

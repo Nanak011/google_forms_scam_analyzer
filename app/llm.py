@@ -10,13 +10,10 @@ from groq import Groq
 from pydantic import BaseModel, Field
 
 from app.config import settings
-
-gemini_client = genai.Client(api_key=settings.gemini_api_key)
-groq_client = Groq(api_key=settings.groq_api_key)
+from app.keys import BYOKKeys
 
 GEMINI_MODEL = "gemini-3.6-flash"
 GROQ_MODEL = "openai/gpt-oss-120b"
-
 GEMINI_TIMEOUT_SECONDS = 15
 
 INPUT_PRICE_PER_MILLION = 1.50
@@ -25,6 +22,18 @@ OUTPUT_PRICE_PER_MILLION = 7.50
 LOG_PATH = Path(__file__).resolve().parent.parent / "logs" / "llm_cost_log.jsonl"
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _resolve_gemini_key(keys: BYOKKeys | None) -> str | None:
+    if keys and keys.gemini_api_key:
+        return keys.gemini_api_key
+    return settings.gemini_api_key  # dev fallback only
+
+
+def _resolve_groq_key(keys: BYOKKeys | None) -> str | None:
+    if keys and keys.groq_api_key:
+        return keys.groq_api_key
+    return settings.groq_api_key  # dev fallback only
 
 
 def _log_cost(cost_entry: dict) -> None:
@@ -40,9 +49,12 @@ def _extract_json_block(raw: str) -> str:
     return match.group(0)
 
 
-def _try_groq_structured(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str) -> T | None:
+def _try_groq_structured(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str, groq_key: str | None) -> T | None:
+    if not groq_key:
+        return None
     try:
-        completion = groq_client.chat.completions.create(
+        client = Groq(api_key=groq_key)
+        completion = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -56,13 +68,9 @@ def _try_groq_structured(system_prompt: str, user_prompt: str, schema_cls: type[
 
         usage = completion.usage
         _log_cost({
-            "provider": "groq",
-            "model": GROQ_MODEL,
-            "task": log_tag,
-            "input_tokens": usage.prompt_tokens,
-            "output_tokens": usage.completion_tokens,
-            "estimated_cost_usd": 0.0,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provider": "groq", "model": GROQ_MODEL, "task": log_tag,
+            "input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens,
+            "estimated_cost_usd": 0.0, "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         return result
     except Exception as e:
@@ -70,9 +78,12 @@ def _try_groq_structured(system_prompt: str, user_prompt: str, schema_cls: type[
         return None
 
 
-def _try_gemini_structured(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str) -> T | None:
+def _try_gemini_structured(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str, gemini_key: str | None) -> T | None:
+    if not gemini_key:
+        return None
     try:
-        response = gemini_client.models.generate_content(
+        client = genai.Client(api_key=gemini_key)
+        response = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=user_prompt,
             config=types.GenerateContentConfig(
@@ -92,13 +103,9 @@ def _try_gemini_structured(system_prompt: str, user_prompt: str, schema_cls: typ
             + output_tokens / 1_000_000 * OUTPUT_PRICE_PER_MILLION
         )
         _log_cost({
-            "provider": "gemini",
-            "model": GEMINI_MODEL,
-            "task": log_tag,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "estimated_cost_usd": round(estimated_cost, 6),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provider": "gemini", "model": GEMINI_MODEL, "task": log_tag,
+            "input_tokens": input_tokens, "output_tokens": output_tokens,
+            "estimated_cost_usd": round(estimated_cost, 6), "timestamp": datetime.now(timezone.utc).isoformat(),
         })
         return result
     except Exception as e:
@@ -106,17 +113,21 @@ def _try_gemini_structured(system_prompt: str, user_prompt: str, schema_cls: typ
         return None
 
 
-def _classify(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str) -> T:
-    result = _try_groq_structured(system_prompt, user_prompt, schema_cls, log_tag)
+def _classify(system_prompt: str, user_prompt: str, schema_cls: type[T], log_tag: str, keys: BYOKKeys | None) -> T:
+    groq_key = _resolve_groq_key(keys)
+    gemini_key = _resolve_gemini_key(keys)
+
+    result = _try_groq_structured(system_prompt, user_prompt, schema_cls, log_tag, groq_key)
     if result is not None:
         return result
-    result = _try_gemini_structured(system_prompt, user_prompt, schema_cls, log_tag)
+    result = _try_gemini_structured(system_prompt, user_prompt, schema_cls, log_tag, gemini_key)
     if result is not None:
         return result
+
+    if not groq_key and not gemini_key:
+        raise RuntimeError("No LLM API key available. Set your Gemini or Groq key in the extension options.")
     raise RuntimeError(f"Both LLM providers failed for task '{log_tag}'.")
 
-
-# Task 1: scam-tactic classification
 
 class LLMAnalysis(BaseModel):
     tactics_detected: list[str] = Field(
@@ -145,18 +156,18 @@ title, description, and questions of a Google Form. Your only job is to:
    - generic_greeting (impersonal, no specific recipient name, mass-blast tone)
 2. Extract any named people or organizations mentioned, so they can be
    looked up separately. Only extract real proper names of people or
-   organizations — do NOT extract generic field/topic labels, acronyms for
-   academic fields, or common phrases (e.g. "HCI", "Human-Computer
-   Interaction", "customer service" are not named entities).
-   Do NOT extract major well-known trusted platforms/services 
-   (Google, Google Forms, Google Classroom, Google Sheets, Microsoft, Zoom, YouTube, Gmail, Moodle, WhatsApp)
-   as named entities - they are not suspicious just for being mentioned or linked to.
+   organizations - do NOT extract generic field/topic labels, acronyms for
+   academic fields, or common phrases. Do NOT extract major well-known
+   trusted platforms/services (Google, Google Forms, Google Classroom,
+   Google Sheets, Microsoft, Zoom, YouTube, Gmail, Moodle, WhatsApp) as
+   named entities - they are not suspicious just for being mentioned or
+   linked to.
 3. Give a one-sentence plain-language summary of your assessment.
 4. Give your own confidence (0.0-1.0) that this form is a scam, based
    purely on the wording - you are not checking any links or reputation,
    that happens elsewhere in the system.
 
-Respond with JSON matching this exact shape, and nothing else — no markdown
+Respond with JSON matching this exact shape, and nothing else - no markdown
 fences, no commentary before or after:
 {"tactics_detected": [...], "named_entities": [...], "summary": "...", "llm_confidence": 0.0}
 
@@ -174,47 +185,9 @@ def _build_classify_prompt(title: str, description: str, questions: list[str]) -
     )
 
 
-def classify_form(title: str, description: str, questions: list[str]) -> LLMAnalysis:
+def classify_form(title: str, description: str, questions: list[str], keys: BYOKKeys | None = None) -> LLMAnalysis:
     prompt = _build_classify_prompt(title, description, questions)
-    return _classify(CLASSIFY_SYSTEM_PROMPT, prompt, LLMAnalysis, log_tag="classify_form")
-
-
-
-# Task 2: entity search-result relevance judgment 
-
-# class EntityRelevance(BaseModel):
-#     is_relevant: bool = Field(
-#         description=(
-#             "True ONLY if the search results genuinely indicate this specific "
-#             "name/entity is associated with scams, fraud, or complaints. False "
-#             "if the results are generic, about an unrelated topic, or merely "
-#             "contain the search words coincidentally (e.g. an academic acronym "
-#             "that happens to co-occur with the word 'scam' on an unrelated page)."
-#         )
-#     )
-#     reason: str = Field(description="One short sentence explaining the judgment.")
-
-
-# RELEVANCE_SYSTEM_PROMPT = """You are given a name or organization that was \
-# searched alongside the words "scam", "fraud", or "complaint", and the top \
-# search result snippets returned. Judge whether those snippets actually show \
-# this specific entity is associated with scam/fraud reports — not just that \
-# the search words appear somewhere on the page. Be skeptical: generic terms, \
-# acronyms, or common phrases often trigger coincidental matches that have \
-# nothing to do with the entity actually being fraudulent.
-
-# Respond with JSON matching this exact shape, and nothing else:
-# {"is_relevant": false, "reason": "..."}"""
-
-
-# def judge_entity_relevance(entity_name: str, snippets: list[str]) -> EntityRelevance:
-#     if not snippets:
-#         return EntityRelevance(is_relevant=False, reason="No search snippets to judge.")
-
-#     snippets_block = "\n---\n".join(snippets)
-#     prompt = f'Entity searched: "{entity_name}"\n\nSearch result snippets:\n{snippets_block}'
-#     return _classify(RELEVANCE_SYSTEM_PROMPT, prompt, EntityRelevance, log_tag="judge_entity_relevance")
-
+    return _classify(CLASSIFY_SYSTEM_PROMPT, prompt, LLMAnalysis, log_tag="classify_form", keys=keys)
 
 
 class EntityRelevance(BaseModel):
@@ -242,12 +215,12 @@ class EntityRelevance(BaseModel):
 RELEVANCE_SYSTEM_PROMPT = """You are given a name or organization that was \
 searched alongside the words "scam", "fraud", or "complaint", and the top \
 search results (snippet + source URL) returned. Judge whether those results \
-genuinely show this specific entity is associated with scam/fraud reports - \
+genuinely show this specific entity is associated with scam/fraud reports — \
 not just that the search words appear somewhere on the page.
 
-Be skeptical by default. Well-known trusted platforms (Google, Microsoft, \
-major universities, etc.), generic terms, and acronyms often produce \
-coincidental matches unrelated to the entity being fraudulent.
+Be skeptical by default. Well-known trusted platforms, generic terms, and \
+acronyms often produce coincidental matches unrelated to the entity being \
+fraudulent.
 
 If you judge it relevant, you MUST quote the exact supporting sentence as \
 evidence_snippet and copy the matching source URL exactly from the list as \
@@ -258,7 +231,7 @@ Respond with JSON matching this exact shape, and nothing else:
 {"is_relevant": false, "reason": "...", "evidence_snippet": null, "evidence_url": null}"""
 
 
-def judge_entity_relevance(entity_name: str, results: list[dict]) -> EntityRelevance:
+def judge_entity_relevance(entity_name: str, results: list[dict], keys: BYOKKeys | None = None) -> EntityRelevance:
     if not results:
         return EntityRelevance(is_relevant=False, reason="No search results to judge.")
 
@@ -267,4 +240,4 @@ def judge_entity_relevance(entity_name: str, results: list[dict]) -> EntityRelev
         for i, r in enumerate(results)
     )
     prompt = f'Entity searched: "{entity_name}"\n\nSearch results:\n{numbered}'
-    return _classify(RELEVANCE_SYSTEM_PROMPT, prompt, EntityRelevance, log_tag="judge_entity_relevance")
+    return _classify(RELEVANCE_SYSTEM_PROMPT, prompt, EntityRelevance, log_tag="judge_entity_relevance", keys=keys)

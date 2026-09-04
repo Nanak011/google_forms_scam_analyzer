@@ -299,3 +299,16 @@ The popup now displays that quoted evidence directly under any flagged entity, s
 - The background job previously had no top-level error handling - if entity-relevance calls failed (e.g. rate limits), the whole job died silently and the scan stayed stuck in `pending_osint` permanently. Now wrapped so a scan always reaches a final state, degrading gracefully if some part of OSINT fails.
 
 Verified against multiple real (non-test) Google Forms filled previously, confirming: legitimate forms return low confidence with no false flags, an embedded link in a real form gets checked independently of the form's own URL, and rescanning after a fix actually reflects the new result instead of the stale cache.
+
+
+## M3 Stage 14 - BYOK: per-user API keys, no shared server secrets
+
+Backend no longer relies solely on server-side `.env` keys for real usage. Every LLM/OSINT function now accepts an optional per-request key, resolved in this order: 
+header-supplied key (from the extension) → `.env` fallback (local dev convenience only, never required).
+
+- Added `extension/options.html` / `options.js` - a settings page where the user pastes their own free API keys (Gemini/Groq required for classification; Safe Browsing, VirusTotal, urlscan.io, Tavily optional and additive). Keys are stored only in `chrome.storage.local` - never sent anywhere except as request headers to the user's own locally-run backend, never persisted server-side, never logged.
+- `app/keys.py` - `BYOKKeys` model carrying the six possible keys through the request → background job pipeline.
+- Missing optional OSINT keys degrade gracefully: that specific check is skipped (shown in the popup as "Skipped - no key set"), classification still runs normally. Only an LLM key (Gemini or Groq) is actually required.
+- Missing/invalid LLM key returns a proper `400` with a real explanation ("No LLM API key found. Add your Gemini or Groq API key in the extension's settings.") instead of an opaque `500`.
+
+Tested: blanked `.env`'s LLM keys entirely, confirmed scanning fails with the correct message; added keys via the options page, confirmed scanning works purely from BYOK with no server-side keys involved at all.

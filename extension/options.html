@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 480px; margin: 40px auto; color: #111; }
+  h1 { font-size: 16px; }
+  p.note { font-size: 12.5px; color: #666; line-height: 1.5; }
+  label { display: block; font-size: 12.5px; font-weight: 600; margin: 14px 0 4px; }
+  input { width: 100%; padding: 8px; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+  a { font-size: 11.5px; }
+  button { margin-top: 20px; padding: 10px 16px; font-size: 13px; font-weight: 600; background: #111; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  #saved { color: #0a7a2f; font-size: 12.5px; margin-left: 10px; display: none; }
+</style>
+</head>
+<body>
+  <a href="#" id="closeLink" style="font-size:12px; display:inline-block; margin-bottom:10px;">← Back</a>
+  <h1>Google Forms Scam Analyzer — API Keys</h1>
+  <p class="note">
+    Your keys stay on this device and are sent only to your own locally-running
+    backend, per scan - never stored on any server. At minimum, one LLM key
+    (Gemini or Groq) is required; the rest are optional but improve accuracy.
+  </p>
+
+  <label>Gemini API key (<a href="https://aistudio.google.com/apikey" target="_blank">get one</a>)</label>
+  <input type="password" id="gemini" placeholder="AIza...">
+
+  <label>Groq API key (<a href="https://console.groq.com/keys" target="_blank">get one</a>)</label>
+  <input type="password" id="groq" placeholder="gsk_...">
+
+  <label>Google Safe Browsing API key (<a href="https://console.cloud.google.com/apis/library/safebrowsing.googleapis.com" target="_blank">get one</a>)</label>
+  <input type="password" id="safeBrowsing">
+
+  <label>VirusTotal API key (<a href="https://www.virustotal.com/gui/join-us" target="_blank">get one</a>)</label>
+  <input type="password" id="virustotal">
+
+  <label>urlscan.io API key (<a href="https://urlscan.io/user/signup" target="_blank">get one</a>)</label>
+  <input type="password" id="urlscan">
+
+  <label>Tavily API key (<a href="https://tavily.com" target="_blank">get one</a>)</label>
+  <input type="password" id="tavily">
+
+  <div>
+    <button id="saveBtn">Save</button>
+    <span id="saved">Saved ✓</span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

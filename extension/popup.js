@@ -35,8 +35,14 @@ async function init() {
 }
 
 function renderReady() {
-  app.innerHTML = `<button class="primary" id="scanBtn">Scan this form</button>`;
+  app.innerHTML = `
+    <button class="primary" id="scanBtn">Scan this form</button>
+    <div style="text-align:center; margin-top:10px;">
+      <button class="rescan-link" id="settingsBtn">API key settings</button>
+    </div>
+  `;
   document.getElementById("scanBtn").addEventListener("click", () => runScan(false));
+  document.getElementById("settingsBtn").addEventListener("click", () => chrome.runtime.openOptionsPage());
 }
 
 function renderLoading(message) {
@@ -75,20 +81,37 @@ async function runScan(force = false) {
     const formData = await chrome.tabs.sendMessage(currentTabId, { type: "GET_FORM_DATA" });
     formData.force = force;
     renderLoading("Analyzing wording...");
+    const keys = await getStoredKeys();
 
     const response = await fetch(`${API_BASE}/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Gemini-Key": keys.gemini || "",
+        "X-Groq-Key": keys.groq || "",
+        "X-Safe-Browsing-Key": keys.safeBrowsing || "",
+        "X-Virustotal-Key": keys.virustotal || "",
+        "X-Urlscan-Key": keys.urlscan || "",
+        "X-Tavily-Key": keys.tavily || "",
+      },
       body: JSON.stringify(formData),
     });
-    if (!response.ok) throw new Error(`Server returned ${response.status}`);
+    if (!response.ok) {
+      let detail = `Server returned ${response.status}`;
+      try {
+        const errBody = await response.json();
+        if (errBody.detail) detail = errBody.detail;
+      } catch (e) {}
+      throw new Error(detail);
+    }
 
     const result = await response.json();
     await storeScan(currentFormUrl, result.content_hash);
     renderResult(result);
     if (result.status === "pending_osint") startPolling(result.content_hash);
   } catch (err) {
-    renderError(err.message);
+    const isNetworkError = err instanceof TypeError; // fetch throws TypeError on connection failure
+    renderError(err.message, isNetworkError);
   }
 }
 
@@ -223,17 +246,35 @@ function evidenceRow(snippet, url) {
 
 
 
+// function statusFor(check, labelFn) {
+//   if (!check || check.error) return { flagged: false, label: "n/a" };
+//   if (check.flagged) return { flagged: true, label: labelFn ? labelFn(check) : "Flagged" };
+//   return { flagged: false, label: "Clean" };
+// }
+
+// function historyStatusFor(check) {
+//   if (!check || check.error) return { flagged: false, label: "n/a" };
+//   if (check.has_history === false) return { flagged: false, label: "No history (new/rare)" };
+//   return { flagged: false, label: `${check.scan_count} prior scans` };
+// }
+
+
 function statusFor(check, labelFn) {
-  if (!check || check.error) return { flagged: false, label: "n/a" };
+  if (!check) return { flagged: false, label: "n/a" };
+  if (check.error === "no_api_key") return { flagged: false, label: "Skipped (no key set)" };
+  if (check.error) return { flagged: false, label: "n/a" };
   if (check.flagged) return { flagged: true, label: labelFn ? labelFn(check) : "Flagged" };
   return { flagged: false, label: "Clean" };
 }
 
 function historyStatusFor(check) {
-  if (!check || check.error) return { flagged: false, label: "n/a" };
+  if (!check) return { flagged: false, label: "n/a" };
+  if (check.error === "no_api_key") return { flagged: false, label: "Skipped (no key set)" };
+  if (check.error) return { flagged: false, label: "n/a" };
   if (check.has_history === false) return { flagged: false, label: "No history (new/rare)" };
   return { flagged: false, label: `${check.scan_count} prior scans` };
 }
+
 
 function checkRow(label, status) {
   const dotClass = status.flagged ? "dot-flag" : status.label === "n/a" ? "dot-neutral" : "dot-safe";
@@ -241,12 +282,25 @@ function checkRow(label, status) {
   return `<tr><td><span class="dot ${dotClass}"></span>${escapeHtml(label)}</td><td class="${valClass}">${escapeHtml(status.label)}</td></tr>`;
 }
 
-function renderError(message) {
+// function renderError(message) {
+//   app.innerHTML = `
+//     <div class="error">Error: ${escapeHtml(message)}. Is the backend running?</div>
+//     <button class="primary" id="retryBtn" style="margin-top:10px;">Try again</button>
+//   `;
+//   document.getElementById("retryBtn").addEventListener("click", () => runScan(false));
+// }
+
+function renderError(message, isNetworkError = false) {
+  const suffix = isNetworkError ? " Is the backend running?" : "";
   app.innerHTML = `
-    <div class="error">Error: ${escapeHtml(message)}. Is the backend running?</div>
+    <div class="error">Error: ${escapeHtml(message)}${suffix}</div>
     <button class="primary" id="retryBtn" style="margin-top:10px;">Try again</button>
+    <div style="text-align:center; margin-top:10px;">
+      <button class="rescan-link" id="settingsBtn">API key settings</button>
+    </div>
   `;
   document.getElementById("retryBtn").addEventListener("click", () => runScan(false));
+  document.getElementById("settingsBtn").addEventListener("click", () => chrome.runtime.openOptionsPage());
 }
 
 function truncate(str, n) { return str.length > n ? str.slice(0, n) + "..." : str; }
@@ -260,6 +314,12 @@ function escapeHtml(str) {
 function getStoredScan(formUrl) {
   return new Promise((resolve) => {
     chrome.storage.local.get([storageKey(formUrl)], (data) => resolve(data[storageKey(formUrl)] || null));
+  });
+}
+
+function getStoredKeys() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["byokKeys"], (data) => resolve(data.byokKeys || {}));
   });
 }
 

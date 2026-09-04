@@ -1,22 +1,19 @@
-import httpx
 import re
-from app.config import settings
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import httpx
+from tavily import TavilyClient
 
+from app.config import settings
+from app.keys import BYOKKeys
+
+SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 URL_REGEX = re.compile(r'https?://[^\s<>"\')\]]+')
 
 
-SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
-
-
 def extract_urls(*texts: str) -> list[str]:
-    """Pulls out URLs mentioned in form text - this is what should actually
-    get reputation-checked, since the Google Forms URL itself is always on
-    a trusted domain regardless of whether the form's content is a scam."""
     urls = set()
     for text in texts:
         if not text:
@@ -25,119 +22,67 @@ def extract_urls(*texts: str) -> list[str]:
             urls.add(match.rstrip(".,;)"))
     return list(urls)
 
-def check_safe_browsing(url: str) -> dict:
-    """Returns {'flagged': bool, 'threat_types': list[str]}"""
-    if not settings.google_safe_browsing_api_key:
+
+def _resolve(byok_value: str | None, dev_fallback: str | None) -> str | None:
+    return byok_value or dev_fallback
+
+
+def check_safe_browsing(url: str, api_key: str | None = None) -> dict:
+    key = _resolve(api_key, settings.google_safe_browsing_api_key)
+    if not key:
         return {"flagged": False, "threat_types": [], "error": "no_api_key"}
 
     payload = {
         "client": {"clientId": "google-forms-scam-analyzer", "clientVersion": "1.0"},
         "threatInfo": {
-            "threatTypes": [
-                "MALWARE",
-                "SOCIAL_ENGINEERING",
-                "UNWANTED_SOFTWARE",
-                "POTENTIALLY_HARMFUL_APPLICATION",
-            ],
+            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
             "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
             "threatEntries": [{"url": url}],
         },
     }
+    try:
+        response = httpx.post(SAFE_BROWSING_URL, params={"key": key}, json=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        matches = data.get("matches", [])
+        return {"flagged": len(matches) > 0, "threat_types": [m["threatType"] for m in matches]}
+    except Exception as e:
+        return {"flagged": False, "threat_types": [], "error": f"request_failed: {e}"}
 
-    response = httpx.post(
-        SAFE_BROWSING_URL,
-        params={"key": settings.google_safe_browsing_api_key},
-        json=payload,
-        timeout=10,
-    )
-    response.raise_for_status()
-    data = response.json()
 
-    matches = data.get("matches", [])
-    threat_types = [m["threatType"] for m in matches]
-    return {"flagged": len(matches) > 0, "threat_types": threat_types}
-
-def check_virustotal(url: str) -> dict:
-    """Returns {'flagged': bool, 'malicious_count': int, 'total_engines': int}"""
-    if not settings.virustotal_api_key:
+def check_virustotal(url: str, api_key: str | None = None) -> dict:
+    key = _resolve(api_key, settings.virustotal_api_key)
+    if not key:
         return {"flagged": False, "malicious_count": 0, "total_engines": 0, "error": "no_api_key"}
 
     import base64
     url_id = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
 
-    response = httpx.get(
-        f"https://www.virustotal.com/api/v3/urls/{url_id}",
-        headers={"x-apikey": settings.virustotal_api_key},
-        timeout=10,
-    )
-
-    if response.status_code == 404:
-        httpx.post(
-            "https://www.virustotal.com/api/v3/urls",
-            headers={"x-apikey": settings.virustotal_api_key},
-            data={"url": url},
-            timeout=10,
+    try:
+        response = httpx.get(
+            f"https://www.virustotal.com/api/v3/urls/{url_id}",
+            headers={"x-apikey": key}, timeout=10,
         )
-        return {"flagged": False, "malicious_count": 0, "total_engines": 0, "note": "not_yet_analyzed"}
+        if response.status_code == 404:
+            httpx.post(
+                "https://www.virustotal.com/api/v3/urls",
+                headers={"x-apikey": key}, data={"url": url}, timeout=10,
+            )
+            return {"flagged": False, "malicious_count": 0, "total_engines": 0, "note": "not_yet_analyzed"}
 
-    response.raise_for_status()
-    data = response.json()
-    stats = data["data"]["attributes"]["last_analysis_stats"]
-    malicious = stats.get("malicious", 0)
-    total = sum(stats.values())
+        response.raise_for_status()
+        data = response.json()
+        stats = data["data"]["attributes"]["last_analysis_stats"]
+        malicious = stats.get("malicious", 0)
+        return {"flagged": malicious > 0, "malicious_count": malicious, "total_engines": sum(stats.values())}
+    except Exception as e:
+        return {"flagged": False, "malicious_count": 0, "total_engines": 0, "error": f"request_failed: {e}"}
 
-    return {"flagged": malicious > 0, "malicious_count": malicious, "total_engines": total}
 
-
-
-# def check_urlscan(url: str) -> dict:
-#     """Returns first-seen / page-identity signals for a domain, using
-#     urlscan.io's search API (existing scan history, not a live re-scan —
-#     instant, no wait)."""
-#     if not settings.urlscan_api_key:
-#         return {"new_domain": None, "scan_count": 0, "error": "no_api_key"}
-
-#     domain = urlparse(url).netloc
-#     if not domain:
-#         return {"new_domain": None, "scan_count": 0, "error": "invalid_url"}
-
-#     response = httpx.get(
-#         "https://urlscan.io/api/v1/search/",
-#         headers={"API-Key": settings.urlscan_api_key},
-#         params={"q": f"domain:{domain}", "size": 10},
-#         timeout=10,
-#     )
-#     response.raise_for_status()
-#     data = response.json()
-#     results = data.get("results", [])
-
-#     if not results:
-#         return {"new_domain": True, "scan_count": 0, "first_seen": None}
-
-#     dates = [r["task"]["time"] for r in results if "task" in r and "time" in r["task"]]
-#     earliest = min(dates) if dates else None
-#     page_title = results[0].get("page", {}).get("title")
-
-#     return {
-#         "new_domain": False,
-#         "scan_count": len(results),
-#         "first_seen": earliest,
-#         "page_title": page_title,
-#     }
-
-def check_urlscan(url: str) -> dict:
-    """Returns whether a domain has any scan history on urlscan.io.
-    Note: their search API only sorts newest-first with no ascending
-    option, so a precise 'first ever seen' date isn't retrievable without
-    paging through potentially thousands of results - not practical per
-    request. Presence/absence of history and an approximate result count
-    are the reliable signals available here.
-
-    Fails soft: any network/timeout error returns a neutral result rather
-    than crashing the caller, since this check runs off the main request
-    path and one slow provider shouldn't block the others."""
-    if not settings.urlscan_api_key:
+def check_urlscan(url: str, api_key: str | None = None) -> dict:
+    key = _resolve(api_key, settings.urlscan_api_key)
+    if not key:
         return {"has_history": None, "scan_count": 0, "error": "no_api_key"}
 
     domain = urlparse(url).netloc
@@ -147,157 +92,35 @@ def check_urlscan(url: str) -> dict:
     try:
         response = httpx.get(
             "https://urlscan.io/api/v1/search/",
-            headers={"API-Key": settings.urlscan_api_key},
-            params={"q": f"domain:{domain}", "size": 1},
-            timeout=30,
+            headers={"API-Key": key}, params={"q": f"domain:{domain}", "size": 1}, timeout=20,
         )
         response.raise_for_status()
-        data = response.json()
-        total = data.get("total", 0)
+        total = response.json().get("total", 0)
         return {"has_history": total > 0, "scan_count": total}
     except httpx.TimeoutException:
         return {"has_history": None, "scan_count": 0, "error": "timeout"}
-    except httpx.HTTPError as e:
+    except Exception as e:
         return {"has_history": None, "scan_count": 0, "error": f"request_failed: {e}"}
 
 
-
-from tavily import TavilyClient
-
-tavily_client = TavilyClient(api_key=settings.tavily_api_key) if settings.tavily_api_key else None
-
-
-# def check_named_entity(entity_name: str) -> dict:
-#     """Runs a targeted search for a named person/org extracted by the LLM,
-#     looking for existing scam reports. Returns top result snippets so the
-#     caller can judge relevance - this does NOT itself decide scam/not-scam,
-#     since a hit could be a false positive (e.g. a real org impersonated by
-#     someone else)."""
-#     if not tavily_client:
-#         return {"query": None, "result_count": 0, "top_snippets": [], "error": "no_api_key"}
-
-#     query = f'"{entity_name}" scam OR fraud OR complaint'
-
-#     try:
-#         response = tavily_client.search(
-#             query=query,
-#             max_results=3,
-#             search_depth="basic",
-#         )
-#         results = response.get("results", [])
-#         snippets = [r.get("content", "")[:300] for r in results]
-#         return {"query": query, "result_count": len(results), "top_snippets": snippets}
-#     except Exception as e:
-#         return {"query": query, "result_count": 0, "top_snippets": [], "error": f"request_failed: {e}"}
-
-
-def check_named_entity(entity_name: str) -> dict:
-    if not tavily_client:
+def check_named_entity(entity_name: str, api_key: str | None = None) -> dict:
+    key = _resolve(api_key, settings.tavily_api_key)
+    if not key:
         return {"query": None, "result_count": 0, "top_results": [], "error": "no_api_key"}
 
     query = f'"{entity_name}" scam OR fraud OR complaint'
-
     try:
-        response = tavily_client.search(query=query, max_results=3, search_depth="basic")
+        client = TavilyClient(api_key=key)
+        response = client.search(query=query, max_results=3, search_depth="basic")
         results = response.get("results", [])
-        top_results = [
-            {"snippet": r.get("content", "")[:400], "url": r.get("url", "")}
-            for r in results
-        ]
+        top_results = [{"snippet": r.get("content", "")[:400], "url": r.get("url", "")} for r in results]
         return {"query": query, "result_count": len(results), "top_results": top_results}
     except Exception as e:
         return {"query": query, "result_count": 0, "top_results": [], "error": f"request_failed: {e}"}
 
 
-
-
-# def run_osint_checks(url: str, named_entities: list[str]) -> dict:
-#     """Runs all OSINT checks concurrently (I/O-bound network calls, so
-#     threads are sufficient - no need for full async here). Each check
-#     already fails soft internally, so one slow/broken provider degrades
-#     that signal rather than blocking the others."""
-#     results = {}
-
-#     with ThreadPoolExecutor(max_workers=4) as pool:
-#         futures = {
-#             pool.submit(check_safe_browsing, url): "safe_browsing",
-#             pool.submit(check_virustotal, url): "virustotal",
-#             pool.submit(check_urlscan, url): "urlscan",
-#         }
-       
-#         entity_futures = {
-#             pool.submit(check_named_entity, name): name
-#             for name in named_entities[:3] 
-#         }
-
-#         for future in as_completed(futures):
-#             key = futures[future]
-#             try:
-#                 results[key] = future.result()
-#             except Exception as e:
-#                 results[key] = {"error": f"unexpected_failure: {e}"}
-
-#         entity_results = {}
-#         for future in as_completed(entity_futures):
-#             name = entity_futures[future]
-#             try:
-#                 entity_results[name] = future.result()
-#             except Exception as e:
-#                 entity_results[name] = {"error": f"unexpected_failure: {e}"}
-#         results["named_entity_checks"] = entity_results
-
-#     return results
-
-
-# def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None) -> dict:
-#     embedded_urls = (embedded_urls or [])[:3]  # cap to protect free-tier quotas
-#     results = {}
-
-#     with ThreadPoolExecutor(max_workers=8) as pool:
-#         form_url_futures = {
-#             pool.submit(check_safe_browsing, url): "safe_browsing",
-#             pool.submit(check_virustotal, url): "virustotal",
-#             pool.submit(check_urlscan, url): "urlscan",
-#         }
-#         entity_futures = {
-#             pool.submit(check_named_entity, name): name
-#             for name in named_entities[:3]
-#         }
-#         embedded_futures = {}
-#         for u in embedded_urls:
-#             embedded_futures[pool.submit(check_safe_browsing, u)] = (u, "safe_browsing")
-#             embedded_futures[pool.submit(check_virustotal, u)] = (u, "virustotal")
-#             embedded_futures[pool.submit(check_urlscan, u)] = (u, "urlscan")
-
-#         for future in as_completed(form_url_futures):
-#             check_name = form_url_futures[future]
-#             try:
-#                 results[check_name] = future.result()
-#             except Exception as e:
-#                 results[check_name] = {"error": f"unexpected_failure: {e}"}
-
-#         entity_results = {}
-#         for future in as_completed(entity_futures):
-#             name = entity_futures[future]
-#             try:
-#                 entity_results[name] = future.result()
-#             except Exception as e:
-#                 entity_results[name] = {"error": f"unexpected_failure: {e}"}
-#         results["named_entity_checks"] = entity_results
-
-#         embedded_results = {}
-#         for future in as_completed(embedded_futures):
-#             u, check_name = embedded_futures[future]
-#             embedded_results.setdefault(u, {})
-#             try:
-#                 embedded_results[u][check_name] = future.result()
-#             except Exception as e:
-#                 embedded_results[u][check_name] = {"error": f"unexpected_failure: {e}"}
-#         results["embedded_link_checks"] = embedded_results
-
-#     return results
-
-def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None) -> dict:
+def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None, keys: BYOKKeys | None = None) -> dict:
+    keys = keys or BYOKKeys()
     embedded_urls = (embedded_urls or [])[:3]
     checked_entities = named_entities[:3]
     skipped_entities = named_entities[3:]
@@ -305,16 +128,19 @@ def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[st
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         form_url_futures = {
-            pool.submit(check_safe_browsing, url): "safe_browsing",
-            pool.submit(check_virustotal, url): "virustotal",
-            pool.submit(check_urlscan, url): "urlscan",
+            pool.submit(check_safe_browsing, url, keys.safe_browsing_api_key): "safe_browsing",
+            pool.submit(check_virustotal, url, keys.virustotal_api_key): "virustotal",
+            pool.submit(check_urlscan, url, keys.urlscan_api_key): "urlscan",
         }
-        entity_futures = {pool.submit(check_named_entity, name): name for name in checked_entities}
+        entity_futures = {
+            pool.submit(check_named_entity, name, keys.tavily_api_key): name
+            for name in checked_entities
+        }
         embedded_futures = {}
         for u in embedded_urls:
-            embedded_futures[pool.submit(check_safe_browsing, u)] = (u, "safe_browsing")
-            embedded_futures[pool.submit(check_virustotal, u)] = (u, "virustotal")
-            embedded_futures[pool.submit(check_urlscan, u)] = (u, "urlscan")
+            embedded_futures[pool.submit(check_safe_browsing, u, keys.safe_browsing_api_key)] = (u, "safe_browsing")
+            embedded_futures[pool.submit(check_virustotal, u, keys.virustotal_api_key)] = (u, "virustotal")
+            embedded_futures[pool.submit(check_urlscan, u, keys.urlscan_api_key)] = (u, "urlscan")
 
         for future in as_completed(form_url_futures):
             check_name = form_url_futures[future]
