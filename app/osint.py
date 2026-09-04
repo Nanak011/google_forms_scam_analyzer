@@ -135,8 +135,8 @@ def check_named_entity(entity_name: str, api_key: str | None = None, allow_serve
 def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None, keys: BYOKKeys | None = None, allow_server_fallback: bool = True) -> dict:
     keys = keys or BYOKKeys()
     embedded_urls = (embedded_urls or [])[:3]
-    checked_entities = named_entities[:3]
-    skipped_entities = named_entities[3:]
+    checked_entities = named_entities[:5]
+    skipped_entities = named_entities[5:]
     results = {}
 
     with ThreadPoolExecutor(max_workers=8) as pool:

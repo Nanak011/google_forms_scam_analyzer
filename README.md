@@ -336,6 +336,16 @@ Stage 16's limiter only gated LLM calls - a user with their own LLM key could st
 Verified: with rate limiting on and no own LLM key, OSINT checks run normally off server keys (full experience during trial). After adding an own LLM key, OSINT checks correctly stop falling back to server keys.
 
 
+## M3 Stage 18 - Fix: embedded links in answer options weren't extracted
+
+Found that `content.js` only read question *titles* from `FB_PUBLIC_LOAD_DATA_`, not answer-choice text - so a scam link presented as a multiple-choice option (a real, effective disguise pattern) was silently invisible to the backend, even though `extract_urls()` and the LLM prompt both already handle any string in `questions[]` correctly.
+Fixed by also extracting option text per question. 
+
+Verified against a form with two known-malicious links (sourced from PhishTank) presented as answer choices: both now appear as separate "Embedded link" checks and are correctly flagged by VirusTotal.
+
+Also raised the named-entity check cap from 3 to 5, since most real forms have close to that many, and existing rate limiting already bounds total daily cost from this increase.
+
+
 
 
 
