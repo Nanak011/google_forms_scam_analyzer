@@ -5,7 +5,7 @@ A Chrome extension + local backend that checks whether a Google Form you've is a
 FlyRank Backend Internship - "Your 10x Solution" capstone.
 
 📄 Full problem statement, 10x claim, and concepts:
-[My 10x Solution - Gurunanak Surname.md](./My%2010x%20Solution%20-%20Gurunanak%20Adhikari.md)
+[My 10x Solution - Gurunanak Adhikari.md](./My%2010x%20Solution%20-%20Gurunanak%20Adhikari.md)
 
 ## Concepts:
 
