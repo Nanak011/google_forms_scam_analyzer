@@ -1,5 +1,5 @@
 import httpx
-
+import re
 from app.config import settings
 
 from urllib.parse import urlparse
@@ -7,8 +7,23 @@ from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+URL_REGEX = re.compile(r'https?://[^\s<>"\')\]]+')
+
+
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
+
+def extract_urls(*texts: str) -> list[str]:
+    """Pulls out URLs mentioned in form text - this is what should actually
+    get reputation-checked, since the Google Forms URL itself is always on
+    a trusted domain regardless of whether the form's content is a scam."""
+    urls = set()
+    for text in texts:
+        if not text:
+            continue
+        for match in URL_REGEX.findall(text):
+            urls.add(match.rstrip(".,;)"))
+    return list(urls)
 
 def check_safe_browsing(url: str) -> dict:
     """Returns {'flagged': bool, 'threat_types': list[str]}"""
@@ -152,56 +167,161 @@ from tavily import TavilyClient
 tavily_client = TavilyClient(api_key=settings.tavily_api_key) if settings.tavily_api_key else None
 
 
+# def check_named_entity(entity_name: str) -> dict:
+#     """Runs a targeted search for a named person/org extracted by the LLM,
+#     looking for existing scam reports. Returns top result snippets so the
+#     caller can judge relevance - this does NOT itself decide scam/not-scam,
+#     since a hit could be a false positive (e.g. a real org impersonated by
+#     someone else)."""
+#     if not tavily_client:
+#         return {"query": None, "result_count": 0, "top_snippets": [], "error": "no_api_key"}
+
+#     query = f'"{entity_name}" scam OR fraud OR complaint'
+
+#     try:
+#         response = tavily_client.search(
+#             query=query,
+#             max_results=3,
+#             search_depth="basic",
+#         )
+#         results = response.get("results", [])
+#         snippets = [r.get("content", "")[:300] for r in results]
+#         return {"query": query, "result_count": len(results), "top_snippets": snippets}
+#     except Exception as e:
+#         return {"query": query, "result_count": 0, "top_snippets": [], "error": f"request_failed: {e}"}
+
+
 def check_named_entity(entity_name: str) -> dict:
-    """Runs a targeted search for a named person/org extracted by the LLM,
-    looking for existing scam reports. Returns top result snippets so the
-    caller can judge relevance - this does NOT itself decide scam/not-scam,
-    since a hit could be a false positive (e.g. a real org impersonated by
-    someone else)."""
     if not tavily_client:
-        return {"query": None, "result_count": 0, "top_snippets": [], "error": "no_api_key"}
+        return {"query": None, "result_count": 0, "top_results": [], "error": "no_api_key"}
 
     query = f'"{entity_name}" scam OR fraud OR complaint'
 
     try:
-        response = tavily_client.search(
-            query=query,
-            max_results=3,
-            search_depth="basic",
-        )
+        response = tavily_client.search(query=query, max_results=3, search_depth="basic")
         results = response.get("results", [])
-        snippets = [r.get("content", "")[:300] for r in results]
-        return {"query": query, "result_count": len(results), "top_snippets": snippets}
+        top_results = [
+            {"snippet": r.get("content", "")[:400], "url": r.get("url", "")}
+            for r in results
+        ]
+        return {"query": query, "result_count": len(results), "top_results": top_results}
     except Exception as e:
-        return {"query": query, "result_count": 0, "top_snippets": [], "error": f"request_failed: {e}"}
+        return {"query": query, "result_count": 0, "top_results": [], "error": f"request_failed: {e}"}
 
 
 
-def run_osint_checks(url: str, named_entities: list[str]) -> dict:
-    """Runs all OSINT checks concurrently (I/O-bound network calls, so
-    threads are sufficient - no need for full async here). Each check
-    already fails soft internally, so one slow/broken provider degrades
-    that signal rather than blocking the others."""
+
+# def run_osint_checks(url: str, named_entities: list[str]) -> dict:
+#     """Runs all OSINT checks concurrently (I/O-bound network calls, so
+#     threads are sufficient - no need for full async here). Each check
+#     already fails soft internally, so one slow/broken provider degrades
+#     that signal rather than blocking the others."""
+#     results = {}
+
+#     with ThreadPoolExecutor(max_workers=4) as pool:
+#         futures = {
+#             pool.submit(check_safe_browsing, url): "safe_browsing",
+#             pool.submit(check_virustotal, url): "virustotal",
+#             pool.submit(check_urlscan, url): "urlscan",
+#         }
+       
+#         entity_futures = {
+#             pool.submit(check_named_entity, name): name
+#             for name in named_entities[:3] 
+#         }
+
+#         for future in as_completed(futures):
+#             key = futures[future]
+#             try:
+#                 results[key] = future.result()
+#             except Exception as e:
+#                 results[key] = {"error": f"unexpected_failure: {e}"}
+
+#         entity_results = {}
+#         for future in as_completed(entity_futures):
+#             name = entity_futures[future]
+#             try:
+#                 entity_results[name] = future.result()
+#             except Exception as e:
+#                 entity_results[name] = {"error": f"unexpected_failure: {e}"}
+#         results["named_entity_checks"] = entity_results
+
+#     return results
+
+
+# def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None) -> dict:
+#     embedded_urls = (embedded_urls or [])[:3]  # cap to protect free-tier quotas
+#     results = {}
+
+#     with ThreadPoolExecutor(max_workers=8) as pool:
+#         form_url_futures = {
+#             pool.submit(check_safe_browsing, url): "safe_browsing",
+#             pool.submit(check_virustotal, url): "virustotal",
+#             pool.submit(check_urlscan, url): "urlscan",
+#         }
+#         entity_futures = {
+#             pool.submit(check_named_entity, name): name
+#             for name in named_entities[:3]
+#         }
+#         embedded_futures = {}
+#         for u in embedded_urls:
+#             embedded_futures[pool.submit(check_safe_browsing, u)] = (u, "safe_browsing")
+#             embedded_futures[pool.submit(check_virustotal, u)] = (u, "virustotal")
+#             embedded_futures[pool.submit(check_urlscan, u)] = (u, "urlscan")
+
+#         for future in as_completed(form_url_futures):
+#             check_name = form_url_futures[future]
+#             try:
+#                 results[check_name] = future.result()
+#             except Exception as e:
+#                 results[check_name] = {"error": f"unexpected_failure: {e}"}
+
+#         entity_results = {}
+#         for future in as_completed(entity_futures):
+#             name = entity_futures[future]
+#             try:
+#                 entity_results[name] = future.result()
+#             except Exception as e:
+#                 entity_results[name] = {"error": f"unexpected_failure: {e}"}
+#         results["named_entity_checks"] = entity_results
+
+#         embedded_results = {}
+#         for future in as_completed(embedded_futures):
+#             u, check_name = embedded_futures[future]
+#             embedded_results.setdefault(u, {})
+#             try:
+#                 embedded_results[u][check_name] = future.result()
+#             except Exception as e:
+#                 embedded_results[u][check_name] = {"error": f"unexpected_failure: {e}"}
+#         results["embedded_link_checks"] = embedded_results
+
+#     return results
+
+def run_osint_checks(url: str, named_entities: list[str], embedded_urls: list[str] | None = None) -> dict:
+    embedded_urls = (embedded_urls or [])[:3]
+    checked_entities = named_entities[:3]
+    skipped_entities = named_entities[3:]
     results = {}
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        form_url_futures = {
             pool.submit(check_safe_browsing, url): "safe_browsing",
             pool.submit(check_virustotal, url): "virustotal",
             pool.submit(check_urlscan, url): "urlscan",
         }
-       
-        entity_futures = {
-            pool.submit(check_named_entity, name): name
-            for name in named_entities[:3] 
-        }
+        entity_futures = {pool.submit(check_named_entity, name): name for name in checked_entities}
+        embedded_futures = {}
+        for u in embedded_urls:
+            embedded_futures[pool.submit(check_safe_browsing, u)] = (u, "safe_browsing")
+            embedded_futures[pool.submit(check_virustotal, u)] = (u, "virustotal")
+            embedded_futures[pool.submit(check_urlscan, u)] = (u, "urlscan")
 
-        for future in as_completed(futures):
-            key = futures[future]
+        for future in as_completed(form_url_futures):
+            check_name = form_url_futures[future]
             try:
-                results[key] = future.result()
+                results[check_name] = future.result()
             except Exception as e:
-                results[key] = {"error": f"unexpected_failure: {e}"}
+                results[check_name] = {"error": f"unexpected_failure: {e}"}
 
         entity_results = {}
         for future in as_completed(entity_futures):
@@ -211,5 +331,16 @@ def run_osint_checks(url: str, named_entities: list[str]) -> dict:
             except Exception as e:
                 entity_results[name] = {"error": f"unexpected_failure: {e}"}
         results["named_entity_checks"] = entity_results
+        results["named_entity_checks_skipped"] = skipped_entities
+
+        embedded_results = {}
+        for future in as_completed(embedded_futures):
+            u, check_name = embedded_futures[future]
+            embedded_results.setdefault(u, {})
+            try:
+                embedded_results[u][check_name] = future.result()
+            except Exception as e:
+                embedded_results[u][check_name] = {"error": f"unexpected_failure: {e}"}
+        results["embedded_link_checks"] = embedded_results
 
     return results

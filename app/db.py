@@ -57,7 +57,7 @@ class Scan(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
-
+    embedded_urls: Mapped[str] = mapped_column(Text, default="[]")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

@@ -1,22 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <style>
-    body {
-      width: 300px;
-      padding: 16px;
-      font-family: system-ui, sans-serif;
-    }
-    h1 {
-      font-size: 16px;
-      margin: 0 0 8px 0;
-    }
-  </style>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; }
+  body { width: 360px; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111; background: #fff; }
+  .header { padding: 14px 16px; border-bottom: 1px solid #eee; }
+  .header h1 { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: -0.2px; }
+  .body { padding: 16px; }
+  button.primary { width: 100%; padding: 11px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; background: #111; color: #fff; cursor: pointer; }
+  button.primary:hover { background: #333; }
+  .status-line { font-size: 12px; color: #666; text-align: center; margin-top: 8px; }
+  .progress-track { height: 3px; width: 100%; background: #eee; border-radius: 2px; overflow: hidden; margin-top: 10px; }
+  .progress-bar { height: 100%; width: 40%; background: #111; border-radius: 2px; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+  .verdict-row { display: flex; align-items: baseline; justify-content: space-between; }
+  .verdict { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .confidence { font-size: 12px; color: #666; }
+  .scam { color: #b00020; }
+  .legit { color: #0a7a2f; }
+  .uncertain { color: #a35a00; }
+  ul.reasons { margin: 10px 0 0 0; padding-left: 16px; font-size: 12.5px; line-height: 1.5; color: #222; }
+  table.checks { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 11.5px; }
+  table.checks th { text-align: left; font-weight: 600; color: #888; padding: 4px 0; border-bottom: 1px solid #eee; font-size: 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+  table.checks td { padding: 6px 0; border-bottom: 1px solid #f3f3f3; }
+  td.evidence { font-size: 11px; color: #555; font-style: italic; padding: 2px 0 8px 13px; border-bottom: 1px solid #f3f3f3; }
+  td.evidence a { color: #666; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .dot-safe { background: #0a7a2f; }
+  .dot-flag { background: #b00020; }
+  .dot-neutral { background: #bbb; }
+  .val-safe { color: #0a7a2f; font-weight: 600; }
+  .val-flag { color: #b00020; font-weight: 600; }
+  .val-neutral { color: #888; }
+  .footer-actions { margin-top: 14px; text-align: right; }
+  .rescan-link { font-size: 11.5px; color: #666; cursor: pointer; text-decoration: underline; background: none; border: none; padding: 0; }
+  .rescan-link:hover { color: #111; }
+  .error { color: #b00020; font-size: 12.5px; }
+  .muted { color: #888; font-size: 12px; text-align: center; padding: 8px 0; }
+</style>
 </head>
 <body>
-  <h1>Google Forms Scam Analyzer</h1>
-  <p id="status">Extension loaded successfully.</p>
+  <div class="header"><h1>Google Forms Scam Analyzer</h1></div>
+  <div class="body" id="app"></div>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -245,3 +245,57 @@ Added `GET /analyze/{content_hash}` for the client to poll for the updated resul
 DB schema updated: `Scan` now stores `form_url`, `status`, raw `llm_signals` (needed to re-run `combine_signals` once OSINT lands), and `osint_signals`, alongside the existing verdict/confidence/reasons.
 
 Tested: POST returns fast with `pending_osint`; polling GET a few seconds later returns `complete` with OSINT-adjusted confidence/reasons; a repeat POST with identical content returns instantly from cache regardless of processing state.
+
+
+## M3 Stage 11 - Chrome extension: skeleton
+
+Created `extension/` - Manifest V3, minimal permissions (`activeTab`, `storage` only - no broad `<all_urls>` access), `host_permissions` scoped to `localhost:8000` for now (updated to the deployed URL when hosted).
+
+### Run the extension (dev)
+
+1. Start the backend first (see Setup above - `docker compose up` or `python -m app.main`).
+2. Go to `chrome://extensions`, enable **Developer mode**.
+3. Click **Load unpacked**, select the `extension/` folder.
+
+Verified: extension loads with no errors, popup opens, background service worker starts cleanly (checked via each console).
+
+
+## M3 Stage 12 - Chrome extension: content script (form extraction)
+
+Added `extension/content.js` - reads a live Google Form's title, description, and questions. Deliberately does NOT rely on Google's CSS classes (auto-generated, minified, unstable across builds). Instead reads:
+- `<meta itemprop="name">` / `<meta itemprop="description">` (schema.org, standard on every Form)
+- `FB_PUBLIC_LOAD_DATA_` - the JS data array Google's own frontend uses to render the form, present on every Google Form page
+
+Verified on a real form (not written for this specific form): correctly extracted title, description, form_url, and all question text via the page's own DevTools console.
+
+
+
+
+## M3 Stage 13 - End-to-end wiring: popup ↔ backend, live results
+
+Connected the popup to the backend for real, replacing manual `/docs` testing entirely:
+
+- `popup.js` reads the active tab's form via the content script, POSTs to `/analyze`, and renders the verdict.
+- **Live polling**: since `/analyze` returns fast (LLM-only) while OSINT runs as a true background job, the popup polls `GET /analyze/{hash}` every ~2.5s until `status: "complete"`, so the verdict visibly refines instead of the user having to guess or reopen manually.
+- **State persistence**: the popup remembers the last-scanned content hash per form URL (`chrome.storage.local`) and checks current status immediately on open - closing the popup mid-scan no longer loses progress, since the backend keeps working regardless.
+- **Force-rescan**: a `force` flag bypasses the cache for testing, since identical content otherwise correctly returns the cached result.
+
+### Embedded link checking (architecture fix)
+
+Originally only the Google Form's own URL was reputation-checked - always `docs.google.com`, one of the most trusted domains on the internet, so this was structurally close to useless as a signal. Now `extract_urls()` pulls any URLs mentioned in the form's title/description/questions (e.g. an embedded "verify here" or payment link) and runs Safe Browsing + VirusTotal + urlscan.io against those instead.
+
+### Entity relevance: false positives + transparency
+
+Found and fixed real false positives: 
+generic/trusted terms ("Google", "Google Classroom", "Moodle", "HCI") were being flagged as scam-linked purely from coincidental keyword co-occurrence in search results.
+Fixed by: 
+(1) excluding well-known trusted platforms from entity extraction in the LLM prompt, 
+(2) requiring the relevance-judging LLM call to quote an exact supporting sentence + source URL before it's allowed mark something relevant - no evidence, no flag. 
+The popup now displays that quoted evidence directly under any flagged entity, so a verdict is never just "trust me."
+
+### Bug fixes
+
+- A 4th+ named entity (beyond the 3-per-scan cap) previously showed "pending" forever, indistinguishable from a genuinely stuck check. Now correctly labeled "Not checked (limit reached)".
+- The background job previously had no top-level error handling - if entity-relevance calls failed (e.g. rate limits), the whole job died silently and the scan stayed stuck in `pending_osint` permanently. Now wrapped so a scan always reaches a final state, degrading gracefully if some part of OSINT fails.
+
+Verified against multiple real (non-test) Google Forms filled previously, confirming: legitimate forms return low confidence with no false flags, an embedded link in a real form gets checked independently of the form's own URL, and rescanning after a fix actually reflects the new result instead of the stale cache.

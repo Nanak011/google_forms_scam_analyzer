@@ -31,11 +31,31 @@ def combine_signals(analysis: LLMAnalysis, osint: dict) -> dict:
         reasons.append("Domain has no prior scan history - newly seen or rarely visited")
         confidence = min(1.0, confidence + 0.1)
 
-    entity_checks = osint.get("named_entity_checks", {})
-    for entity_name, result in entity_checks.items():
-        if result.get("result_count", 0) > 0 and not result.get("error"):
-            reasons.append(f'"{entity_name}" appears in existing scam/fraud-related search results')
-            confidence = min(1.0, confidence + 0.1)
+    # entity_checks = osint.get("named_entity_checks", {})
+    # for entity_name, result in entity_checks.items():
+    #     if result.get("result_count", 0) > 0 and not result.get("error"):
+    #         reasons.append(f'"{entity_name}" appears in existing scam/fraud-related search results')
+    #         confidence = min(1.0, confidence + 0.1)
+
+    # entity_checks = osint.get("named_entity_checks", {})
+    # for entity_name, result in entity_checks.items():
+    #     if result.get("relevant") and not result.get("error"):
+    #         reason_detail = result.get("relevance_reason", "")
+    #         reasons.append(f'"{entity_name}" linked to scam/fraud reports — {reason_detail}')
+    #         confidence = min(1.0, confidence + 0.1)
+
+    embedded_checks = osint.get("embedded_link_checks", {})
+    for link, checks in embedded_checks.items():
+        sb = checks.get("safe_browsing", {})
+        if sb.get("flagged"):
+            reasons.append(f"Embedded link flagged by Safe Browsing: {link}")
+            confidence = max(confidence, 0.95)
+        vt = checks.get("virustotal", {})
+        if vt.get("flagged"):
+            count = vt.get("malicious_count", 0)
+            total = vt.get("total_engines", 0)
+            reasons.append(f"Embedded link flagged by {count}/{total} vendors: {link}")
+            confidence = max(confidence, 0.9)
 
     verdict = _verdict_from_confidence(confidence)
 
