@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # google_cse_cx: str | None = None
     tavily_api_key: str | None = None
 
+    enable_rate_limit: bool = False
+    free_daily_scan_limit: int = 3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

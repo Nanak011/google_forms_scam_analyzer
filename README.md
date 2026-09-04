@@ -321,6 +321,17 @@ Tested: blanked `.env`'s LLM keys entirely, confirmed scanning fails with the co
 Still not perfect and subject to future enhancement.
 
 
+## M3 Stage 16 - Rate limiting on shared server keys
+
+Added `app/ratelimit.py` - a simple per-IP daily counter (SQLite-backed, same DB as everything else) protecting the LLM calls that fall back to the server's own `.env` keys once deployed. Only active when `ENABLE_RATE_LIMIT=true` (left `false` for local dev - no limit while testing locally).
+
+Anyone who supplies their own Gemini or Groq key in the extension's settings bypasses the limit entirely, since they're spending their own quota, not the server's. Exceeding the free limit returns a `429` with a clear message pointing the user to add their own key.
+
+**Known limitation, documented:** the limiter currently only gates LLM calls. OSINT checks (Safe Browsing, VirusTotal, urlscan.io, Tavily) still fall back to server keys for every request regardless of LLM-key status, protected only by each provider's own free-tier caps (Safe Browsing ~10k/day, VirusTotal ~500/day, etc.), not by this application's own limiter. Addressed in the next stage.
+
+
+
+
 
 
 
